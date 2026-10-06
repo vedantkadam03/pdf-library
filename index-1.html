@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1e3a8a">
+<title>PDF Library</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--tx:#14213d;--mute:#6b7280;--line:#e2e6f0;--acc:#1e3a8a;--danger:#c0392b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1420;--card:#192033;--tx:#e8ecf5;--mute:#94a0b8;--line:#2a3350;--acc:#7da2ff;--danger:#ff7a6b}}
+:root[data-theme="dark"]{--bg:#0f1420;--card:#192033;--tx:#e8ecf5;--mute:#94a0b8;--line:#2a3350;--acc:#7da2ff;--danger:#ff7a6b}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+html,body{overscroll-behavior:none;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:6px 0 4px}
+.sub{color:var(--mute);font-size:.9rem;margin-bottom:18px}
+.grid{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+.sc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 18px;cursor:pointer;text-align:left;color:var(--tx);font:inherit;display:flex;flex-direction:column;gap:6px}
+.sc:active{transform:scale(.98)}
+.sc .ic{font-size:2rem}.sc .nm{font-size:1.2rem;font-weight:700}.sc .ct{color:var(--mute);font-size:.9rem}
+.sc.gs{grid-column:1/-1;background:var(--acc);color:#fff;border:none;padding:30px 22px}
+.sc.gs .ct{color:#dbe4ff}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.btn{background:var(--acc);color:#fff;border:none;border-radius:12px;padding:12px 18px;font:inherit;font-weight:600;cursor:pointer}
+:root[data-theme="dark"] .btn{color:#0f1420}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn{color:#0f1420}}
+.btn.ghost{background:transparent;color:var(--acc);border:1px solid var(--line)}
+input[type=search]{flex:1;min-width:140px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--tx);font:inherit}
+.item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.item .info{flex:1;min-width:0;cursor:pointer}
+.item .t{font-weight:600;word-break:break-word}
+.item .m{color:var(--mute);font-size:.8rem;margin-top:2px}
+.item .del{background:none;border:1px solid var(--line);color:var(--danger);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+.empty{color:var(--mute);text-align:center;padding:40px 10px}
+.hidden{display:none!important}
+#viewer{position:fixed;inset:0;background:var(--bg);z-index:10;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+#viewer .vb{display:flex;gap:10px;padding:10px;align-items:center}
+#viewer .vt{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#viewer iframe{flex:1;border:0;width:100%;background:#fff}
+#msg{color:var(--mute);font-size:.8rem;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="home">
+    <h1>📚 My PDF Library</h1>
+    <div class="sub">Tap a subject to open or add PDFs.</div>
+    <div class="grid" id="cards"></div>
+    <div id="msg"></div>
+  </div>
+  <div id="sec" class="hidden">
+    <div class="bar">
+      <button class="btn ghost" id="back">← Back</button>
+      <h1 id="stitle" style="margin:0"></h1>
+    </div>
+    <div class="bar">
+      <button class="btn" id="add">+ Add PDFs</button>
+      <input type="search" id="q" placeholder="Search PDFs">
+    </div>
+    <input type="file" id="file" accept="application/pdf,.pdf" multiple class="hidden">
+    <div id="list"></div>
+  </div>
+</div>
+<div id="viewer" class="hidden">
+  <div class="vb"><button class="btn ghost" id="vclose">✕ Close</button><div class="vt" id="vtitle"></div><a class="btn" id="vnew" target="_blank" rel="noopener" style="text-decoration:none">Open in tab</a></div>
+  <iframe id="vframe" title="PDF"></iframe>
+</div>
+<script>
+const SUBJECTS=[
+  {id:'gs',name:'GS',icon:'🌍',cls:'gs'},
+  {id:'english',name:'English',icon:'📖',cls:''},
+  {id:'strategy',name:'Strategy',icon:'🎯',cls:''}
+];
+let db=null,current=null,counts={},delArmed=null,curUrl=null;
+const $=id=>document.getElementById(id);
+
+function openDB(){return new Promise((res,rej)=>{
+  try{
+    const r=indexedDB.open('pdf-library',1);
+    r.onupgradeneeded=()=>{const s=r.result.createObjectStore('files',{keyPath:'id',autoIncrement:true});s.createIndex('subject','subject')};
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+  }catch(e){rej(e)}
+})}
+function tx(mode){return db.transaction('files',mode).objectStore('files')}
+function all(subject){return new Promise((res,rej)=>{
+  const out=[];const req=tx('readonly').index('subject').openCursor(IDBKeyRange.only(subject));
+  req.onsuccess=()=>{const c=req.result;if(c){out.push(c.value);c.continue()}else res(out)};
+  req.onerror=()=>rej(req.error);
+})}
+function put(rec){return new Promise((res,rej)=>{const r=tx('readwrite').add(rec);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+function remove(id){return new Promise((res,rej)=>{const r=tx('readwrite').delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+function fmt(b){return b>1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB'}
+
+async function refreshCounts(){
+  for(const s of SUBJECTS){try{counts[s.id]=(await all(s.id)).length}catch(e){counts[s.id]=0}}
+}
+async function renderHome(){
+  if(db)await refreshCounts();
+  $('cards').innerHTML='';
+  SUBJECTS.forEach(s=>{
+    const b=document.createElement('button');b.className='sc '+s.cls;
+    b.innerHTML='<span class="ic">'+s.icon+'</span><span class="nm">'+s.name+'</span><span class="ct">'+(counts[s.id]||0)+' PDFs</span>';
+    b.onclick=()=>openSection(s);
+    $('cards').appendChild(b);
+  });
+  try{
+    if(navigator.storage&&navigator.storage.estimate){
+      const e=await navigator.storage.estimate();
+      $('msg').textContent='Stored on this device: '+fmt(e.usage||0)+' used. Files stay in this browser only.';
+    }
+  }catch(e){}
+}
+function openSection(s){
+  current=s;$('stitle').textContent=s.icon+' '+s.name;$('q').value='';
+  $('home').classList.add('hidden');$('sec').classList.remove('hidden');renderList();
+}
+async function renderList(){
+  const list=$('list');list.innerHTML='';
+  if(!db){list.innerHTML='<div class="empty">Storage is not available in this browser, so PDFs cannot be saved here.</div>';return}
+  let rows=[];try{rows=await all(current.id)}catch(e){}
+  const q=$('q').value.trim().toLowerCase();
+  rows=rows.filter(r=>r.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+  if(!rows.length){list.innerHTML='<div class="empty">'+(q?'No match.':'No PDFs yet. Tap “+ Add PDFs”.')+'</div>';return}
+  rows.forEach(r=>{
+    const d=document.createElement('div');d.className='item';
+    const info=document.createElement('div');info.className='info';
+    const t=document.createElement('div');t.className='t';t.textContent='📄 '+r.name.replace(/\.pdf$/i,'');
+    const m=document.createElement('div');m.className='m';m.textContent=fmt(r.size)+' · added '+new Date(r.added).toLocaleDateString();
+    info.append(t,m);info.onclick=()=>openPdf(r);
+    const del=document.createElement('button');del.className='del';del.textContent=delArmed===r.id?'Tap again':'Delete';
+    del.onclick=async()=>{
+      if(delArmed===r.id){delArmed=null;await remove(r.id);renderList()}
+      else{delArmed=r.id;renderList();setTimeout(()=>{if(delArmed===r.id){delArmed=null;renderList()}},3000)}
+    };
+    d.append(info,del);list.appendChild(d);
+  });
+}
+function openPdf(r){
+  if(curUrl)URL.revokeObjectURL(curUrl);
+  curUrl=URL.createObjectURL(new Blob([r.blob],{type:'application/pdf'}));
+  $('vtitle').textContent=r.name;$('vnew').href=curUrl;$('vframe').src=curUrl;
+  $('viewer').classList.remove('hidden');
+}
+$('vclose').onclick=()=>{$('viewer').classList.add('hidden');$('vframe').src='about:blank'};
+$('back').onclick=()=>{$('sec').classList.add('hidden');$('home').classList.remove('hidden');renderHome()};
+$('add').onclick=()=>$('file').click();
+$('q').oninput=renderList;
+$('file').onchange=async e=>{
+  const files=[...e.target.files];if(!db||!files.length)return;
+  $('add').textContent='Saving…';
+  for(const f of files){
+    try{await put({subject:current.id,name:f.name,size:f.size,added:Date.now(),blob:f})}
+    catch(err){alert('Could not save "'+f.name+'". Storage may be full.')}
+  }
+  e.target.value='';$('add').textContent='+ Add PDFs';renderList();
+};
+(async()=>{
+  try{db=await openDB();try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}}catch(e){db=null}
+  renderHome();
+})();
+</script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
+</body>
+</html>
